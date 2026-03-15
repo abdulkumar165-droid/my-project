@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>擦窗机器人数字孪生面板</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0b1020; color:#fff; margin:0; }
+    .top { display:flex; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid #27325b; }
+    .badge { padding:4px 10px; border-radius:99px; background:#2a355f; }
+    .ok { background:#1c8f63; }
+    .bad { background:#944; }
+    .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; padding:16px; }
+    .card { background:#121a32; border:1px solid #27325b; border-radius:10px; padding:12px; }
+    .big { font-size:24px; font-weight:bold; }
+    .bar { height:10px; background:#2a355f; border-radius:99px; overflow:hidden; }
+    .fill { height:100%; background:#2ed1a2; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>连接状态</div>
+    <div id="conn" class="badge bad">DISCONNECTED</div>
+    <div>后端时间</div>
+    <div id="updated">-</div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div>机器人ID</div><div id="id" class="big">-</div></div>
+    <div class="card"><div>运行状态</div><div id="status" class="big">-</div></div>
+    <div class="card"><div>仿真时间</div><div id="simTime" class="big">0.0s</div></div>
+    <div class="card"><div>速度</div><div id="speed" class="big">0.00m/s</div></div>
+
+    <div class="card"><div>擦拭覆盖率</div><div class="bar"><div id="wipeBar" class="fill" style="width:0%"></div></div><div id="wipeText">0%</div></div>
+    <div class="card"><div>喷涂覆盖率</div><div class="bar"><div id="paintBar" class="fill" style="width:0%"></div></div><div id="paintText">0%</div></div>
+    <div class="card"><div>擦拭面积</div><div id="wipeArea" class="big">0.00㎡</div></div>
+    <div class="card"><div>喷涂面积</div><div id="paintArea" class="big">0.00㎡</div></div>
+
+    <div class="card"><div>喷涂状态</div><div id="spray" class="big">OFF</div></div>
+    <div class="card"><div>电量</div><div class="bar"><div id="batteryBar" class="fill" style="width:0%"></div></div><div id="batteryText">0%</div></div>
+    <div class="card"><div>液位</div><div class="bar"><div id="tankBar" class="fill" style="width:0%"></div></div><div id="tankText">0%</div></div>
+    <div class="card"><div>位置</div><div id="position" class="big">(0,0,0)</div></div>
+  </div>
+
+<script>
+  let ws = null;
+  let reconnectTimer = null;
+
+  function connect() {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${scheme}://${location.host}/ws`);
+
+    ws.onopen = () => setConnection(true);
+    ws.onclose = () => {
+      setConnection(false);
+      scheduleReconnect();
+    };
+    ws.onerror = () => setConnection(false);
+    ws.onmessage = (evt) => render(JSON.parse(evt.data));
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 1500);
+  }
+
+  function setConnection(ok) {
+    const node = document.getElementById('conn');
+    node.textContent = ok ? 'CONNECTED' : 'DISCONNECTED';
+    node.className = `badge ${ok ? 'ok' : 'bad'}`;
+  }
+
+  function render(payload) {
+    const t = payload.telemetry;
+    document.getElementById('updated').textContent = payload.updatedAt || '-';
+    if (!t) return;
+
+    document.getElementById('id').textContent = t.robotId;
+    document.getElementById('status').textContent = t.status;
+    document.getElementById('simTime').textContent = `${t.simTime.toFixed(1)}s`;
+    document.getElementById('speed').textContent = `${t.speed.toFixed(2)}m/s`;
+    document.getElementById('spray').textContent = t.spraying ? 'ON' : 'OFF';
+
+    document.getElementById('wipeArea').textContent = `${t.wipedAreaM2.toFixed(2)}㎡`;
+    document.getElementById('paintArea').textContent = `${t.paintedAreaM2.toFixed(2)}㎡`;
+
+    setPct('wipe', t.wipeCoverage01 * 100);
+    setPct('paint', t.paintCoverage01 * 100);
+    setPct('battery', t.battery01 * 100);
+    setPct('tank', t.tank01 * 100);
+
+    if (t.worldPosition && typeof t.worldPosition === 'object') {
+      const p = t.worldPosition;
+      const x = Number(p.x ?? 0).toFixed(2);
+      const y = Number(p.y ?? 0).toFixed(2);
+      const z = Number(p.z ?? 0).toFixed(2);
+      document.getElementById('position').textContent = `(${x}, ${y}, ${z})`;
+    }
+  }
+
+  function setPct(prefix, value) {
+    const pct = Math.max(0, Math.min(100, value));
+    document.getElementById(`${prefix}Bar`).style.width = `${pct.toFixed(1)}%`;
+    document.getElementById(`${prefix}Text`).textContent = `${pct.toFixed(1)}%`;
+  }
+
+  connect();
+</script>
+</body>
+</html>
